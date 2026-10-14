@@ -1,429 +1,223 @@
 name: Build Solana Pro V2 APK
-
-on:
-  push:
-    branches: [ main, master ]
-  workflow_dispatch:
-
+on: [push, workflow_dispatch]
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.6'
-
-      - name: Generate Android Live Wallpaper V2 Project
-        run: |
-          mkdir -p app/src/main/java/com/solana/wallpaperpro
-          mkdir -p app/src/main/res/xml
-          mkdir -p app/src/main/res/values
-
-          cat << 'EOF' > settings.gradle
-          pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
+    - uses: actions/setup-java@v4
+      with: { distribution: 'temurin', java-version: '17' }
+    - uses: gradle/actions/setup-gradle@v4
+      with: { gradle-version: '8.6' }
+    - name: Generate Project
+      run: |
+        mkdir -p app/src/main/java/com/solana/wallpaperpro app/src/main/res/xml app/src/main/res/values
+        cat << 'EOF' > settings.gradle
+        pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+        dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
+        rootProject.name = "SolanaProV2"
+        include ':app'
+        EOF
+        cat << 'EOF' > build.gradle
+        plugins { id 'com.android.application' version '8.2.2' apply false }
+        EOF
+        cat << 'EOF' > gradle.properties
+        org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+        android.useAndroidX=true
+        EOF
+        cat << 'EOF' > app/build.gradle
+        plugins { id 'com.android.application' }
+        android {
+          namespace 'com.solana.wallpaperpro'
+          compileSdk 34
+          defaultConfig { applicationId "com.solana.wallpaperpro"; minSdk 24; targetSdk 34; versionCode 2; versionName "2.0" }
+          compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+        }
+        EOF
+        cat << 'EOF' > app/src/main/res/values/strings.xml
+        <resources><string name="app_name">Solana Pro V2</string></resources>
+        EOF
+        cat << 'EOF' > app/src/main/res/xml/wallpaper.xml
+        <wallpaper xmlns:android="http://schemas.android.com/apk/res/android" android:settingsActivity="com.solana.wallpaperpro.MainActivity" android:description="@string/app_name"/>
+        EOF
+        cat << 'EOF' > app/src/main/AndroidManifest.xml
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          <uses-permission android:name="android.permission.INTERNET"/>
+          <uses-feature android:name="android.software.live_wallpaper" android:required="true"/>
+          <application android:label="@string/app_name" android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+            <activity android:name=".MainActivity" android:exported="true" android:excludeFromRecents="true" android:theme="@android:style/Theme.DeviceDefault.Dialog.NoActionBar">
+              <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+            </activity>
+            <service android:name=".SolanaWallpaperService" android:exported="true" android:label="Solana Pro V2 (IDR &amp; USD)" android:permission="android.permission.BIND_WALLPAPER">
+              <intent-filter><action android:name="android.service.wallpaper.WallpaperService"/></intent-filter>
+              <meta-data android:name="android.service.wallpaper" android:resource="@xml/wallpaper"/>
+            </service>
+          </application>
+        </manifest>
+        EOF
+        cat << 'EOF' > app/src/main/java/com/solana/wallpaperpro/MainActivity.java
+        package com.solana.wallpaperpro;
+        import android.app.*; import android.content.*; import android.graphics.*; import android.graphics.drawable.GradientDrawable;
+        import android.os.Bundle; import android.text.*; import android.view.Gravity; import android.widget.*; import java.util.Locale;
+        public class MainActivity extends Activity {
+          boolean upd = false;
+          int px(int v, float d) { return Math.round(v * d); }
+          GradientDrawable box(String c, float r, int sw, String sc) {
+            GradientDrawable g = new GradientDrawable(); g.setColor(Color.parseColor(c)); g.setCornerRadius(r);
+            if (sw > 0) g.setStroke(sw, Color.parseColor(sc)); return g;
           }
-          dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  mavenCentral()
+          @Override protected void onCreate(Bundle b) {
+            super.onCreate(b);
+            final SharedPreferences sp = getSharedPreferences("sol_v2", MODE_PRIVATE);
+            float cur = sp.getFloat("amt", 1f), tgt = sp.getFloat("tgt", 100f), dp = getResources().getDisplayMetrics().density;
+            final boolean[] idr = {sp.getBoolean("idr", true)};
+            LinearLayout rt = new LinearLayout(this); rt.setOrientation(LinearLayout.VERTICAL); rt.setGravity(Gravity.CENTER_HORIZONTAL);
+            rt.setPadding(px(20,dp), px(20,dp), px(20,dp), px(20,dp)); rt.setBackground(box("#0F1118", 20*dp, px(2,dp), "#35FFFFFF"));
+            TextView tl = new TextView(this); tl.setText("SOLANA PRO V2 CONFIG"); tl.setTextColor(Color.WHITE); tl.setTypeface(Typeface.DEFAULT_BOLD);
+            tl.setPadding(0,0,0,px(12,dp)); rt.addView(tl);
+            final EditText inS = new EditText(this); inS.setText(String.format(Locale.US,"%.2f",cur)); inS.setTextSize(22f); inS.setTextColor(Color.WHITE);
+            inS.setGravity(Gravity.CENTER); inS.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
+            inS.setBackground(box("#050508", 12*dp, px(2,dp), "#00C2FF")); rt.addView(inS, new LinearLayout.LayoutParams(px(170,dp), px(46,dp)));
+            final SeekBar sb = new SeekBar(this); sb.setMax(1000); sb.setProgress(Math.round((cur/Math.max(1f,tgt))*1000f));
+            sb.setPadding(0,px(14,dp),0,px(12,dp)); rt.addView(sb, new LinearLayout.LayoutParams(px(250,dp), -2));
+            TextView lt = new TextView(this); lt.setText("TARGET GOAL (SOL)"); lt.setTextSize(11f); lt.setTextColor(Color.LTGRAY); rt.addView(lt);
+            final EditText inT = new EditText(this); inT.setText(String.format(Locale.US,"%.0f",tgt)); inT.setTextSize(16f); inT.setTextColor(Color.parseColor("#14F195"));
+            inT.setGravity(Gravity.CENTER); inT.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
+            inT.setBackground(box("#050508", 10*dp, px(1,dp), "#14F195"));
+            LinearLayout.LayoutParams lpT = new LinearLayout.LayoutParams(px(130,dp), px(40,dp)); lpT.setMargins(0,px(4,dp),0,px(12,dp)); rt.addView(inT, lpT);
+            final Button bCur = new Button(this); bCur.setText(idr[0]?"MATA UANG: RUPIAH (IDR)":"MATA UANG: DOLLAR (USD)");
+            bCur.setTextSize(11f); bCur.setTextColor(Color.parseColor("#00C2FF")); bCur.setBackground(box("#1800C2FF", 10*dp, px(1,dp), "#5500C2FF"));
+            bCur.setOnClickListener(v -> { idr[0]=!idr[0]; bCur.setText(idr[0]?"MATA UANG: RUPIAH (IDR)":"MATA UANG: DOLLAR (USD)"); });
+            LinearLayout.LayoutParams lpC = new LinearLayout.LayoutParams(px(250,dp), px(38,dp)); lpC.bottomMargin = px(12,dp); rt.addView(bCur, lpC);
+            sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+              public void onProgressChanged(SeekBar s, int p, boolean u) {
+                if (u && !upd) { upd=true; float m=100f; try{m=Math.max(1f,Float.parseFloat(inT.getText().toString()));}catch(Exception e){}
+                inS.setText(String.format(Locale.US,"%.2f",(p/1000f)*m)); upd=false; }
               }
+              public void onStartTrackingTouch(SeekBar s){} public void onStopTrackingTouch(SeekBar s){}
+            });
+            Button bSv = new Button(this); bSv.setText("SIMPAN SALDO"); bSv.setTextColor(Color.BLACK); bSv.setTypeface(Typeface.DEFAULT_BOLD);
+            bSv.setBackground(box("#14F195", 10*dp, 0, "#000000")); bSv.setOnClickListener(v -> { sv(sp,inS,inT,idr[0]); finish(); });
+            rt.addView(bSv, new LinearLayout.LayoutParams(px(250,dp), px(42,dp)));
+            Button bWp = new Button(this); bWp.setText("PASANG LIVE WALLPAPER V2"); bWp.setTextSize(11f); bWp.setTextColor(Color.WHITE); bWp.setTypeface(Typeface.DEFAULT_BOLD);
+            GradientDrawable wg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{Color.parseColor("#9945FF"),Color.parseColor("#00C2FF")});
+            wg.setCornerRadius(10*dp); bWp.setBackground(wg);
+            bWp.setOnClickListener(v -> {
+              sv(sp,inS,inT,idr[0]);
+              try { startActivity(new Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT, new ComponentName(this, SolanaWallpaperService.class))); }
+              catch (Exception e) { startActivity(new Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER)); }
+              finish();
+            });
+            LinearLayout.LayoutParams lpW = new LinearLayout.LayoutParams(px(250,dp), px(42,dp)); lpW.topMargin = px(10,dp); rt.addView(bWp, lpW);
+            setContentView(rt);
           }
-          rootProject.name = "SolanaProV2"
-          include ':app'
-          EOF
-
-          cat << 'EOF' > build.gradle
-          plugins {
-              id 'com.android.application' version '8.2.2' apply false
+          void sv(SharedPreferences p, EditText s, EditText t, boolean idr) {
+            float v=1f, m=100f; try{v=Float.parseFloat(s.getText().toString());}catch(Exception e){} try{m=Math.max(1f,Float.parseFloat(t.getText().toString()));}catch(Exception e){}
+            p.edit().putFloat("amt", Math.max(0f,Math.min(m,v))).putFloat("tgt", m).putBoolean("idr", idr).apply();
           }
-          EOF
-
-          cat << 'EOF' > gradle.properties
-          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-          android.useAndroidX=true
-          EOF
-
-          cat << 'EOF' > app/build.gradle
-          plugins {
-              id 'com.android.application'
-          }
-
-          android {
-              namespace 'com.solana.wallpaperpro'
-              compileSdk 34
-
-              defaultConfig {
-                  applicationId "com.solana.wallpaperpro"
-                  minSdk 24
-                  targetSdk 34
-                  versionCode 2
-                  versionName "2.0-PRO"
+        }
+        EOF
+        cat << 'EOF' > app/src/main/java/com/solana/wallpaperpro/SolanaWallpaperService.java
+        package com.solana.wallpaperpro;
+        import android.content.*; import android.graphics.*; import android.os.*; import android.service.wallpaper.WallpaperService;
+        import android.view.*; import org.json.JSONObject; import java.io.*; import java.net.*; import java.text.*; import java.util.*; import java.util.concurrent.*;
+        public class SolanaWallpaperService extends WallpaperService {
+          @Override public Engine onCreateEngine() { return new SolEngine(); }
+          class SolEngine extends Engine {
+            final Handler hdl = new Handler(Looper.getMainLooper()); final ExecutorService ex = Executors.newSingleThreadExecutor();
+            boolean vis=false, idr=true, fch=false; float w=0, h=0, dp=1, cur=1, anim=1, tgt=100, usd=0, rpRate=0, chg=0, uiA=1, dx=0, dy=0;
+            long lFch=0, lTch=System.currentTimeMillis();
+            final RectF rMin=new RectF(), rCfg=new RectF(), rPls=new RectF(), rCrd=new RectF(), rTck=new RectF();
+            final List<float[]> pts=new ArrayList<>(), rps=new ArrayList<>();
+            final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG), tp=new Paint(Paint.ANTI_ALIAS_FLAG);
+            final Random rnd=new Random();
+            final SimpleDateFormat clk=new SimpleDateFormat("HH:mm",Locale.getDefault()), dtf=new SimpleDateFormat("EEE, dd MMM yyyy",new Locale("id","ID"));
+            final Runnable lp = new Runnable(){ public void run(){ draw(); if(vis) hdl.postDelayed(this,16L); } };
+            @Override public void onCreate(SurfaceHolder sh){ super.onCreate(sh); setTouchEventsEnabled(true); dp=getResources().getDisplayMetrics().density; load(); }
+            void load(){
+              SharedPreferences sp=getSharedPreferences("sol_v2",MODE_PRIVATE);
+              tgt=Math.max(1f,sp.getFloat("tgt",100f)); cur=Math.max(0f,Math.min(tgt,sp.getFloat("amt",1f)));
+              idr=sp.getBoolean("idr",true); usd=sp.getFloat("u",0f); rpRate=sp.getFloat("r",0f); chg=sp.getFloat("c",0f);
+            }
+            @Override public void onVisibilityChanged(boolean v){
+              vis=v; if(v){ load(); lTch=System.currentTimeMillis(); fetch(false); hdl.removeCallbacks(lp); hdl.post(lp); } else hdl.removeCallbacks(lp);
+            }
+            @Override public void onSurfaceChanged(SurfaceHolder sh, int f, int sw, int shH){
+              super.onSurfaceChanged(sh,f,sw,shH); w=sw; h=shH; pts.clear();
+              for(int i=0;i<28;i++) pts.add(new float[]{rnd.nextFloat()*w, rnd.nextFloat()*h, (rnd.nextFloat()*2f+0.8f)*dp, -(rnd.nextFloat()*0.45f+0.15f)*dp, rnd.nextInt(140)+45, rnd.nextBoolean()?1:0});
+            }
+            String http(String u) throws Exception {
+              HttpURLConnection c=(HttpURLConnection)new URL(u).openConnection(); c.setConnectTimeout(5000); c.setReadTimeout(5000);
+              BufferedReader br=new BufferedReader(new InputStreamReader(c.getInputStream())); StringBuilder sb=new StringBuilder(); String l;
+              while((l=br.readLine())!=null) sb.append(l); br.close(); return sb.toString();
+            }
+            void fetch(boolean frc){
+              long now=System.currentTimeMillis(); if(fch||(!frc && now-lFch<30000L)) return; fch=true; lFch=now;
+              ex.execute(()->{
+                boolean ok=false;
+                try {
+                  JSONObject s=new JSONObject(http("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd,idr&include_24hr_change=true")).optJSONObject("solana");
+                  if(s!=null && s.optDouble("usd",0)>0){ usd=(float)s.optDouble("usd"); rpRate=(float)s.optDouble("idr",usd*16300); chg=(float)s.optDouble("usd_24h_change",0); ok=true; }
+                } catch(Exception e){}
+                if(!ok) try {
+                  JSONObject o=new JSONObject(http("https://data-api.binance.vision/api/v3/ticker/24hr?symbol=SOLUSDT"));
+                  float u=(float)o.optDouble("lastPrice",0); if(u>0){ usd=u; rpRate=u*16300f; chg=(float)o.optDouble("priceChangePercent",0); ok=true; }
+                } catch(Exception e){}
+                if(ok) getSharedPreferences("sol_v2",MODE_PRIVATE).edit().putFloat("u",usd).putFloat("r",rpRate).putFloat("c",chg).apply();
+                fch=false;
+              });
+            }
+            @Override public void onTouchEvent(MotionEvent e){
+              if(e==null) return; lTch=System.currentTimeMillis();
+              if(e.getAction()==MotionEvent.ACTION_DOWN){ dx=e.getX(); dy=e.getY(); rps.add(new float[]{dx,dy,4*dp,200}); }
+              else if(e.getAction()==MotionEvent.ACTION_UP && Math.hypot(e.getX()-dx,e.getY()-dy)<16*dp){
+                float x=e.getX(), y=e.getY(); SharedPreferences sp=getSharedPreferences("sol_v2",MODE_PRIVATE);
+                if(rMin.contains(x,y)){ cur=Math.max(0f,Math.min(tgt,Math.round((cur-0.5f)*100f)/100f)); sp.edit().putFloat("amt",cur).apply(); }
+                else if(rPls.contains(x,y)){ cur=Math.max(0f,Math.min(tgt,Math.round((cur+0.5f)*100f)/100f)); sp.edit().putFloat("amt",cur).apply(); }
+                else if(rCfg.contains(x,y)) startActivity(new Intent(SolanaWallpaperService.this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                else if(rCrd.contains(x,y)){ idr=!idr; sp.edit().putBoolean("idr",idr).apply(); }
+                else if(rTck.contains(x,y)) fetch(true);
               }
-
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
+            }
+            String rnk(float q){ return q>=100?"TIER: 100 SOL MASTER":q>=80?"TIER: SOLANA WHALE":q>=50?"TIER: SHARK SNIPER":q>=25?"TIER: DOLPHIN TRADER":q>=10?"TIER: CRAB HUSTLER":"TIER: SHRIMP ACCUMULATOR"; }
+            String rp(double v){ NumberFormat nf=NumberFormat.getNumberInstance(new Locale("id","ID")); nf.setMaximumFractionDigits(0); return "Rp "+nf.format(Math.round(v)); }
+            void draw(){ SurfaceHolder sh=getSurfaceHolder(); if(sh==null)return; Canvas c=null; try{c=sh.lockCanvas(); if(c!=null)render(c);}finally{if(c!=null)try{sh.unlockCanvasAndPost(c);}catch(Exception e){}} }
+            void render(Canvas c){
+              long now=System.currentTimeMillis(); if(now-lFch>30000L) fetch(false);
+              anim+=(cur-anim)*0.15f; uiA+=(((now-lTch>5000L)?0.25f:1f)-uiA)*0.08f;
+              c.drawColor(Color.parseColor("#050508")); float cx=w/2f, cy=h/2f, cw=Math.min(w*0.86f,360*dp);
+              p.setStyle(Paint.Style.FILL);
+              for(float[] pt:pts){
+                pt[1]+=pt[3]; if(pt[1]<-10*dp) pt[1]=h+10*dp; p.setShader(null);
+                p.setColor(pt[5]>0.5f?Color.parseColor("#9945FF"):Color.parseColor("#14F195")); p.setAlpha((int)pt[4]); c.drawCircle(pt[0],pt[1],pt[2],p);
               }
-          }
-          EOF
-
-          cat << 'EOF' > app/src/main/res/values/strings.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <string name="app_name">Solana Pro V2</string>
-          </resources>
-          EOF
-
-          cat << 'EOF' > app/src/main/res/xml/wallpaper.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <wallpaper xmlns:android="http://schemas.android.com/apk/res/android"
-              android:settingsActivity="com.solana.wallpaperpro.MainActivity"
-              android:description="@string/app_name" />
-          EOF
-
-          cat << 'EOF' > app/src/main/AndroidManifest.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-              <uses-permission android:name="android.permission.INTERNET" />
-              <uses-feature android:name="android.software.live_wallpaper" android:required="true" />
-
-              <application
-                  android:label="@string/app_name"
-                  android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
-
-                  <activity
-                      android:name=".MainActivity"
-                      android:exported="true"
-                      android:excludeFromRecents="true"
-                      android:theme="@android:style/Theme.DeviceDefault.Dialog.NoActionBar">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                  </activity>
-
-                  <service
-                      android:name=".SolanaWallpaperService"
-                      android:exported="true"
-                      android:label="Solana Pro V2 (IDR &amp; USD)"
-                      android:permission="android.permission.BIND_WALLPAPER">
-                      <intent-filter>
-                          <action android:name="android.service.wallpaper.WallpaperService" />
-                      </intent-filter>
-                      <meta-data
-                          android:name="android.service.wallpaper"
-                          android:resource="@xml/wallpaper" />
-                  </service>
-              </application>
-          </manifest>
-          EOF
-
-          cat << 'EOF' > app/src/main/java/com/solana/wallpaperpro/MainActivity.java
-          package com.solana.wallpaperpro;
-
-          import android.app.Activity;
-          import android.app.WallpaperManager;
-          import android.content.ComponentName;
-          import android.content.Context;
-          import android.content.Intent;
-          import android.content.SharedPreferences;
-          import android.graphics.Color;
-          import android.graphics.Typeface;
-          import android.graphics.drawable.GradientDrawable;
-          import android.os.Bundle;
-          import android.text.Editable;
-          import android.text.InputType;
-          import android.text.TextWatcher;
-          import android.view.Gravity;
-          import android.widget.Button;
-          import android.widget.EditText;
-          import android.widget.LinearLayout;
-          import android.widget.SeekBar;
-          import android.widget.TextView;
-          import java.util.Locale;
-
-          public class MainActivity extends Activity {
-              private boolean isUpdating = false;
-
-              private int toPx(int dpVal, float density) {
-                  return Math.round(dpVal * density);
-              }
-
-              @Override
-              protected void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-
-                  final SharedPreferences prefs = getSharedPreferences("solana_wp_pro_prefs", Context.MODE_PRIVATE);
-                  float currentSol = prefs.getFloat("sol_goal_amount", 1.0f);
-                  float targetGoal = prefs.getFloat("sol_goal_target", 100.0f);
-                  boolean useIdr = prefs.getBoolean("use_idr", true);
-                  final float dp = getResources().getDisplayMetrics().density;
-
-                  LinearLayout root = new LinearLayout(this);
-                  root.setOrientation(LinearLayout.VERTICAL);
-                  root.setGravity(Gravity.CENTER_HORIZONTAL);
-                  root.setPadding(toPx(22, dp), toPx(22, dp), toPx(22, dp), toPx(22, dp));
-
-                  GradientDrawable rootBg = new GradientDrawable();
-                  rootBg.setColor(Color.parseColor("#0F1118"));
-                  rootBg.setCornerRadius(20f * dp);
-                  rootBg.setStroke(toPx(2, dp), Color.parseColor("#35FFFFFF"));
-                  root.setBackground(rootBg);
-
-                  TextView title = new TextView(this);
-                  title.setText("SOLANA PRO V2 CONFIG");
-                  title.setTextSize(14f);
-                  title.setTypeface(Typeface.DEFAULT_BOLD);
-                  title.setTextColor(Color.WHITE);
-                  title.setGravity(Gravity.CENTER);
-                  title.setPadding(0, 0, 0, toPx(14, dp));
-                  root.addView(title);
-
-                  TextView lblCurrent = new TextView(this);
-                  lblCurrent.setText("SALDO SAAT INI (SOL)");
-                  lblCurrent.setTextSize(11f);
-                  lblCurrent.setTextColor(Color.parseColor("#99FFFFFF"));
-                  lblCurrent.setGravity(Gravity.CENTER);
-                  root.addView(lblCurrent);
-
-                  final EditText inputSol = new EditText(this);
-                  inputSol.setText(String.format(Locale.US, "%.2f", currentSol));
-                  inputSol.setTextSize(22f);
-                  inputSol.setTypeface(Typeface.DEFAULT_BOLD);
-                  inputSol.setTextColor(Color.WHITE);
-                  inputSol.setGravity(Gravity.CENTER);
-                  inputSol.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-
-                  GradientDrawable inputBg = new GradientDrawable();
-                  inputBg.setColor(Color.parseColor("#050508"));
-                  inputBg.setCornerRadius(12f * dp);
-                  inputBg.setStroke(toPx(2, dp), Color.parseColor("#00C2FF"));
-                  inputSol.setBackground(inputBg);
-                  inputSol.setPadding(toPx(14, dp), toPx(8, dp), toPx(14, dp), toPx(8, dp));
-                  LinearLayout.LayoutParams lpInput = new LinearLayout.LayoutParams(toPx(180, dp), LinearLayout.LayoutParams.WRAP_CONTENT);
-                  lpInput.topMargin = toPx(6, dp);
-                  root.addView(inputSol, lpInput);
-
-                  final SeekBar seekBar = new SeekBar(this);
-                  seekBar.setMax(1000);
-                  int initialProg = Math.round((currentSol / Math.max(1f, targetGoal)) * 1000f);
-                  seekBar.setProgress(Math.max(0, Math.min(1000, initialProg)));
-                  seekBar.setPadding(0, toPx(14, dp), 0, toPx(14, dp));
-                  root.addView(seekBar, new LinearLayout.LayoutParams(toPx(260, dp), LinearLayout.LayoutParams.WRAP_CONTENT));
-
-                  TextView lblTarget = new TextView(this);
-                  lblTarget.setText("TARGET GOAL (SOL)");
-                  lblTarget.setTextSize(11f);
-                  lblTarget.setTextColor(Color.parseColor("#99FFFFFF"));
-                  lblTarget.setGravity(Gravity.CENTER);
-                  root.addView(lblTarget);
-
-                  final EditText inputTarget = new EditText(this);
-                  inputTarget.setText(String.format(Locale.US, "%.0f", targetGoal));
-                  inputTarget.setTextSize(18f);
-                  inputTarget.setTypeface(Typeface.DEFAULT_BOLD);
-                  inputTarget.setTextColor(Color.parseColor("#14F195"));
-                  inputTarget.setGravity(Gravity.CENTER);
-                  inputTarget.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-
-                  GradientDrawable targetBg = new GradientDrawable();
-                  targetBg.setColor(Color.parseColor("#050508"));
-                  targetBg.setCornerRadius(10f * dp);
-                  targetBg.setStroke(toPx(1, dp), Color.parseColor("#14F195"));
-                  inputTarget.setBackground(targetBg);
-                  inputTarget.setPadding(toPx(12, dp), toPx(6, dp), toPx(12, dp), toPx(6, dp));
-                  LinearLayout.LayoutParams lpTarget = new LinearLayout.LayoutParams(toPx(140, dp), LinearLayout.LayoutParams.WRAP_CONTENT);
-                  lpTarget.topMargin = toPx(6, dp);
-                  lpTarget.bottomMargin = toPx(14, dp);
-                  root.addView(inputTarget, lpTarget);
-
-                  final boolean[] currencyIdrState = new boolean[]{useIdr};
-                  final Button btnCurrency = new Button(this);
-                  btnCurrency.setText(useIdr ? "MATA UANG: RUPIAH (IDR)" : "MATA UANG: DOLLAR (USD)");
-                  btnCurrency.setTextSize(11f);
-                  btnCurrency.setTypeface(Typeface.DEFAULT_BOLD);
-                  btnCurrency.setTextColor(Color.parseColor("#00C2FF"));
-                  GradientDrawable currBg = new GradientDrawable();
-                  currBg.setColor(Color.parseColor("#1400C2FF"));
-                  currBg.setCornerRadius(10f * dp);
-                  currBg.setStroke(toPx(1, dp), Color.parseColor("#5500C2FF"));
-                  btnCurrency.setBackground(currBg);
-                  btnCurrency.setOnClickListener(v -> {
-                      currencyIdrState[0] = !currencyIdrState[0];
-                      btnCurrency.setText(currencyIdrState[0] ? "MATA UANG: RUPIAH (IDR)" : "MATA UANG: DOLLAR (USD)");
-                  });
-                  LinearLayout.LayoutParams lpCurr = new LinearLayout.LayoutParams(toPx(260, dp), toPx(38, dp));
-                  lpCurr.bottomMargin = toPx(16, dp);
-                  root.addView(btnCurrency, lpCurr);
-
-                  seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-                      @Override
-                      public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
-                          if (fromUser && !isUpdating) {
-                              isUpdating = true;
-                              float maxG = 100f;
-                              try { maxG = Float.parseFloat(inputTarget.getText().toString()); } catch (Exception ignored) {}
-                              maxG = Math.max(1f, maxG);
-                              float v = (p / 1000f) * maxG;
-                              inputSol.setText(String.format(Locale.US, "%.2f", v));
-                              isUpdating = false;
-                          }
-                      }
-                      @Override public void onStartTrackingTouch(SeekBar s) {}
-                      @Override public void onStopTrackingTouch(SeekBar s) {}
-                  });
-
-                  inputSol.addTextChangedListener(new TextWatcher() {
-                      @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-                      @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
-                      @Override
-                      public void afterTextChanged(Editable s) {
-                          if (!isUpdating) {
-                              isUpdating = true;
-                              float v = 0f;
-                              float maxG = 100f;
-                              try { v = Float.parseFloat(s.toString()); } catch (Exception ignored) {}
-                              try { maxG = Float.parseFloat(inputTarget.getText().toString()); } catch (Exception ignored) {}
-                              maxG = Math.max(1f, maxG);
-                              v = Math.max(0f, Math.min(maxG, v));
-                              seekBar.setProgress(Math.round((v / maxG) * 1000f));
-                              isUpdating = false;
-                          }
-                      }
-                  });
-
-                  LinearLayout btnRow = new LinearLayout(this);
-                  btnRow.setOrientation(LinearLayout.HORIZONTAL);
-                  btnRow.setGravity(Gravity.CENTER);
-
-                  Button btnCancel = new Button(this);
-                  btnCancel.setText("Batal");
-                  btnCancel.setTextColor(Color.WHITE);
-                  GradientDrawable cancelBg = new GradientDrawable();
-                  cancelBg.setColor(Color.TRANSPARENT);
-                  cancelBg.setCornerRadius(12f * dp);
-                  cancelBg.setStroke(toPx(1, dp), Color.parseColor("#40FFFFFF"));
-                  btnCancel.setBackground(cancelBg);
-                  btnCancel.setOnClickListener(v -> finish());
-
-                  Button btnSave = new Button(this);
-                  btnSave.setText("Simpan");
-                  btnSave.setTextColor(Color.BLACK);
-                  btnSave.setTypeface(Typeface.DEFAULT_BOLD);
-                  GradientDrawable saveBg = new GradientDrawable();
-                  saveBg.setColor(Color.parseColor("#14F195"));
-                  saveBg.setCornerRadius(12f * dp);
-                  btnSave.setBackground(saveBg);
-                  btnSave.setOnClickListener(v -> {
-                      saveSettings(prefs, inputSol, inputTarget, currencyIdrState[0]);
-                      finish();
-                  });
-
-                  LinearLayout.LayoutParams lpBtn = new LinearLayout.LayoutParams(0, toPx(44, dp), 1f);
-                  lpBtn.setMargins(toPx(5, dp), 0, toPx(5, dp), 0);
-                  btnRow.addView(btnCancel, lpBtn);
-                  btnRow.addView(btnSave, lpBtn);
-                  root.addView(btnRow, new LinearLayout.LayoutParams(toPx(260, dp), LinearLayout.LayoutParams.WRAP_CONTENT));
-
-                  Button btnApplyWp = new Button(this);
-                  btnApplyWp.setText("PASANG LIVE WALLPAPER V2");
-                  btnApplyWp.setTextSize(11f);
-                  btnApplyWp.setTypeface(Typeface.DEFAULT_BOLD);
-                  btnApplyWp.setTextColor(Color.WHITE);
-                  GradientDrawable applyBg = new GradientDrawable(
-                      GradientDrawable.Orientation.LEFT_RIGHT,
-                      new int[]{Color.parseColor("#9945FF"), Color.parseColor("#00C2FF")}
-                  );
-                  applyBg.setCornerRadius(10f * dp);
-                  btnApplyWp.setBackground(applyBg);
-                  btnApplyWp.setOnClickListener(v -> {
-                      saveSettings(prefs, inputSol, inputTarget, currencyIdrState[0]);
-                      try {
-                          Intent intent = new Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER);
-                          intent.putExtra(
-                              WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
-                              new ComponentName(MainActivity.this, SolanaWallpaperService.class)
-                          );
-                          startActivity(intent);
-                      } catch (Exception e) {
-                          startActivity(new Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER));
-                      }
-                      finish();
-                  });
-
-                  LinearLayout.LayoutParams lpApply = new LinearLayout.LayoutParams(toPx(260, dp), toPx(42, dp));
-                  lpApply.topMargin = toPx(12, dp);
-                  root.addView(btnApplyWp, lpApply);
-
-                  setContentView(root);
-              }
-
-              private void saveSettings(SharedPreferences prefs, EditText inputSol, EditText inputTarget, boolean useIdr) {
-                  float val = 1f;
-                  float maxG = 100f;
-                  try { val = Float.parseFloat(inputSol.getText().toString()); } catch (Exception ignored) {}
-                  try { maxG = Float.parseFloat(inputTarget.getText().toString()); } catch (Exception ignored) {}
-                  maxG = Math.max(1f, maxG);
-                  val = Math.max(0f, Math.min(maxG, val));
-                  prefs.edit()
-                      .putFloat("sol_goal_amount", val)
-                      .putFloat("sol_goal_target", maxG)
-                      .putBoolean("use_idr", useIdr)
-                      .apply();
-              }
-          }
-          EOF
-
-          cat << 'EOF' > app/src/main/java/com/solana/wallpaperpro/SolanaWallpaperService.java
-          package com.solana.wallpaperpro;
-
-          import android.content.Context;
-          import android.content.Intent;
-          import android.content.SharedPreferences;
-          import android.graphics.Canvas;
-          import android.graphics.Color;
-          import android.graphics.LinearGradient;
-          import android.graphics.Paint;
-          import android.graphics.Path;
-          import android.graphics.RadialGradient;
-          import android.graphics.RectF;
-          import android.graphics.Shader;
-          import android.graphics.Typeface;
-          import android.os.Handler;
-          import android.os.Looper;
-          import android.service.wallpaper.WallpaperService;
-          import android.view.MotionEvent;
-          import android.view.SurfaceHolder;
-          import org.json.JSONObject;
-          import java.io.BufferedReader;
-          import java.io.InputStreamReader;
-          import java.net.HttpURLConnection;
-          import java.net.URL;
-          import java.text.NumberFormat;
-          import java.text.SimpleDateFormat;
-          import java.util.ArrayList;
-          import java.util.Date;
-          import java.util.Iterator;
-          import java.util.List;
-          import java.util.Locale;
-          import java.util.Random;
-          import java.util.concurrent.ExecutorService;
-          import java.util.concurrent.Executors;
-
-          public class SolanaWallpaperService extends WallpaperService {
-              @O
+              Iterator<float[]> it=rps.iterator(); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(1.8f*dp);
+              while(it.hasNext()){ float[] r=it.next(); r[2]+=3*dp; r[3]-=8; if(r[3]<=0) it.remove(); else { p.setColor(Color.parseColor("#00C2FF")); p.setAlpha((int)r[3]); c.drawCircle(r[0],r[1],r[2],p); } }
+              p.setStyle(Paint.Style.FILL); p.setAlpha(255);
+              Date dNow=new Date(now); tp.setShader(null); tp.setTextAlign(Paint.Align.CENTER); tp.setTypeface(Typeface.create(Typeface.DEFAULT,Typeface.BOLD));
+              tp.setTextSize(26*dp); tp.setLetterSpacing(0.12f); tp.setColor(Color.WHITE); c.drawText(clk.format(dNow),cx,cy-220*dp,tp);
+              tp.setTypeface(Typeface.DEFAULT); tp.setTextSize(10.5f*dp); tp.setColor(Color.parseColor("#80FFFFFF")); c.drawText(dtf.format(dNow).toUpperCase(Locale.getDefault()),cx,cy-203*dp,tp);
+              float lTop=cy-162*dp+(float)Math.sin(now/900.0)*5*dp, bw=44*dp; p.setColor(Color.WHITE); p.setAlpha(255);
+              p.setShader(new LinearGradient(cx-bw/2f,0,cx+bw/2f,0,new int[]{Color.parseColor("#9945FF"),Color.parseColor("#00C2FF"),Color.parseColor("#14F195")},null,Shader.TileMode.CLAMP));
+              for(int i=0;i<3;i++){ float shf=(i==1)?-2.5f*dp:2.5f*dp, top=lTop+i*12*dp; c.drawRoundRect(new RectF(cx-bw/2f+shf,top,cx+bw/2f+shf,top+7*dp),4*dp,4*dp,p); }
+              p.setShader(null);
+              tp.setTypeface(Typeface.create(Typeface.DEFAULT,Typeface.BOLD)); tp.setTextSize(15*dp); tp.setLetterSpacing(0.18f); tp.setColor(Color.WHITE);
+              c.drawText(String.format(Locale.US,"ROAD TO %.0f SOL",tgt),cx,cy-102*dp,tp);
+              String tTxt=usd>0?String.format(Locale.US,"SOL $%.2f (%s%.2f%%)",usd,chg>=0?"+":"",chg):(fch?"MEMUAT HARGA LIVE...":"KETUK CEK HARGA SOL");
+              tp.setTextSize(10.5f*dp); tp.setLetterSpacing(0.06f); float tw=tp.measureText(tTxt)+24*dp;
+              rTck.set(cx-tw/2f,cy-88*dp,cx+tw/2f,cy-64*dp); p.setColor(Color.parseColor("#1800C2FF")); c.drawRoundRect(rTck,12*dp,12*dp,p);
+              tp.setColor(usd>0?(chg>=0?Color.parseColor("#14F195"):Color.parseColor("#FF6B81")):Color.parseColor("#00C2FF")); c.drawText(tTxt,cx,rTck.centerY()+3.8f*dp,tp);
+              RectF box=new RectF(cx-cw/2f,cy-52*dp,cx+cw/2f,cy-16*dp); p.setColor(Color.parseColor("#D910121B")); c.drawRoundRect(box,14*dp,14*dp,p);
+              RectF trk=new RectF(box.left+5*dp,box.top+5*dp,box.right-5*dp,box.bottom-5*dp); p.setColor(Color.parseColor("#090A10")); c.drawRoundRect(trk,10*dp,10*dp,p);
+              float rat=Math.max(0.035f,Math.min(1f,anim/Math.max(1f,tgt))); RectF fil=new RectF(trk.left,trk.top,trk.left+trk.width()*rat,trk.bottom);
+              c.save(); Path cp=new Path(); cp.addRoundRect(trk,10*dp,10*dp,Path.Direction.CW); c.clipPath(cp);
+              float gs=((now%3000L)/3000f)*trk.width(); p.setColor(Color.WHITE); p.setAlpha(255);
+              p.setShader(new LinearGradient(trk.left-gs,0,trk.right+trk.width()-gs,0,new int[]{Color.parseColor("#9945FF"),Color.parseColor("#00C2FF"),Color.parseColor("#14F195"),Color.parseColor("#9945FF")},null,Shader.TileMode.REPEAT));
+              c.drawRoundRect(fil,10*dp,10*dp,p); p.setShader(null); c.restore();
+              float scY=box.bottom+20*dp, pct=Math.max(0f,Math.min(100f,(cur/Math.max(1f,tgt))*100f));
+              tp.setTextSize(11*dp); tp.setTextAlign(Paint.Align.LEFT); tp.setColor(Color.parseColor("#9945FF")); c.drawText("0 SOL",box.left,scY,tp);
+              tp.setTextAlign(Paint.Align.CENTER); tp.setTextSize(10*dp); tp.setColor(Color.parseColor("#00C2FF")); c.drawText(rnk(pct),cx,scY,tp);
+              tp.setTextAlign(Paint.Align.RIGHT); tp.setTextSize(11*dp); tp.setColor(Color.parseColor("#14F195")); c.drawText(String.format(Locale.US,"%.0f SOL",tgt),box.right,scY,tp);
+              float amY=scY+50*dp; tp.setTextAlign(Paint.Align.CENTER); tp.setTextSize(38*dp); tp.setLetterSpacing(-0.02f);
+              tp.setShader(new LinearGradient(cx-80*dp,amY-30*dp,cx+80*dp,amY,Color.WHITE,Color.parseColor("#14F195"),Shader.TileMode.CLAMP));
+              c.drawText(String.format(Locale.US,"%.2f SOL",cur),cx,amY,tp); tp.setShader(null);
+              rCrd.set(cx-148*dp,amY+14*dp,cx+148*dp,amY+62*dp); p.s
